@@ -13,10 +13,57 @@ import math
 import time
 from dataclasses import dataclass, asdict
 from typing import Any, Callable, Dict, Optional
+from collections import defaultdict
 
 import cupy as cp
 import cupyx
 from cupyx.scipy import sparse as cpx_sparse
+
+
+def print_best_combos(results):
+    """
+    Scan BenchResult entries from this density run and print the best combos:
+      - For each mode in {hot, cold}:
+        * SpMM: best among all A_{CSR,CSC,COO} @ B_{CSR,CSC,COO}
+        * SpMV: best among A_{CSR,CSC,COO} @ C (dense vec)
+    """
+    import re
+    spmm_pat = re.compile(r'^(hot|cold)_A_(CSR|CSC|COO)\s*@\s*B_(CSR|CSC|COO)\s*\(SpMM\)$')
+    spmv_pat = re.compile(r'^(hot|cold)_A_(CSR|CSC|COO)\s*@\s*C\s*\(SpMV,\s*dense\s*vec\)$')
+
+    # Collect by op+mode
+    best = {
+        ("hot","spmm"): None,
+        ("cold","spmm"): None,
+        ("hot","spmv"): None,
+        ("cold","spmv"): None,
+    }
+
+    for r in results:
+        if not r or r == '':
+            continue
+        name = r.name.strip()
+        m = spmm_pat.match(name)
+        if m:
+            mode = m.group(1)
+            key = (mode, "spmm")
+            if best[key] is None or r.time_s < best[key].time_s:
+                best[key] = r
+            continue
+        m = spmv_pat.match(name)
+        if m:
+            mode = m.group(1)
+            key = (mode, "spmv")
+            if best[key] is None or r.time_s < best[key].time_s:
+                best[key] = r
+            continue
+
+    print("\n=== Best combos (by time) ===")
+    for (mode, op) in [("hot","spmm"), ("hot","spmv"), ("cold","spmm"), ("cold","spmv")]:
+        r = best[(mode, op)]
+        if r is not None:
+            print(f"{r.name} is the best combo  (time={r.time_s:.6f}s)")
+    print()
 
 
 def human_bytes(x: int) -> str:
@@ -85,10 +132,10 @@ def profile_op(name: str, func: Callable[[], Any]) -> BenchResult:
     )
 
 
-def make_sparse_matrix(m: int, n: int, density: float, dtype=cp.float32, seed: int = 0) -> cpx_sparse.csr_matrix:
+def make_sparse_matrix(m: int, n: int, density: float, fmt, dtype=cp.float32, seed: int = 0) -> cpx_sparse.csr_matrix:
     rs = cp.random.RandomState(seed)
     # Generate on GPU directly; include build time in profile when called via profile_op
-    M = cpx_sparse.random(m, n, density=density, format="csr", dtype=dtype, random_state=rs)
+    M = cpx_sparse.random(m, n, density=density, format=fmt, dtype=dtype, random_state=rs)
     # (optional) eliminate zeros (rare for random, but keeps CSR tidy)
     M.eliminate_zeros()
     return M
@@ -139,27 +186,27 @@ def main():
 
     # ----- Build data (profiled) -----
     results = []
+    A = defaultdict()
+    B = defaultdict()
+    for fmt in ["csr", "csc", "coo"]:
+        # results.append(profile_op(f"build_A_sparse_{fmt}", lambda: make_sparse_matrix(args.m, args.n, args.densityA, dtype=dtype, seed=args.seed, fmt=fmt)))
+        # results.append(profile_op(f"build_B_sparse_{fmt}", lambda: make_sparse_matrix(args.n, args.p, args.densityB, dtype=dtype, seed=args.seed, fmt=fmt)))
+        A[fmt] = make_sparse_matrix(args.m, args.n, args.densityA, fmt, dtype=dtype, seed=args.seed)
+        B[fmt] = make_sparse_matrix(args.p, args.p, args.densityB, fmt, dtype=dtype, seed=args.seed)
 
-    results.append(profile_op("build_A_sparse",
-                              lambda: make_sparse_matrix(args.m, args.n, args.densityA, dtype=dtype, seed=args.seed)))
-    A = make_sparse_matrix(args.m, args.n, args.densityA, dtype=dtype, seed=args.seed)  # built again for subsequent ops
-
-    results.append(profile_op("build_B_sparse",
-                              lambda: make_sparse_matrix(args.n, args.p, args.densityB, dtype=dtype, seed=args.seed + 1)))
-    B = make_sparse_matrix(args.n, args.p, args.densityB, dtype=dtype, seed=args.seed + 1)
-
-    results.append(profile_op("build_C_dense_vec",
-                              lambda: make_dense_vector(args.n, dtype=dtype, seed=args.seed + 2)))
+    # results.append(profile_op("build_C_dense_vec",
+    #                           lambda: make_dense_vector(args.n, dtype=dtype, seed=args.seed + 2)))
     C = make_dense_vector(args.n, dtype=dtype, seed=args.seed + 2)
-
-    # Sanity shapes
-    assert A.shape == (args.m, args.n)
-    assert B.shape == (args.n, args.p)
-    assert C.shape == (args.n, 1)
+    results.append("")
 
     # ----- Cold runs (first-call latency) -----
-    results.append(profile_op("cold_A@B (SpMM)", lambda: A @ B))
-    results.append(profile_op("cold_A@C (SpMV, dense vec)", lambda: A @ C))
+    for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+        for B_name, B_fmt in [("CSR", B["csr"]), ("CSC", B["csc"]), ("COO", B["coo"])]:
+            results.append(profile_op(f"cold_A_{A_name} @ B_{B_name} (SpMM)", lambda: A_fmt @ B_fmt))
+
+    for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+        results.append(profile_op(f"cold_A_{A_name} @ C (SpMV, dense vec)", lambda: A_fmt @ C))
+    results.append("")
 
 
     # ----- Hot runs (steady-state) -----
@@ -188,8 +235,14 @@ def main():
         )
         return rsum
 
-    results.append(repeat("A@B (SpMM)", lambda: A @ B, args.runs))
-    results.append(repeat("A@C (SpMV, dense vec)", lambda: A @ C, args.runs))
+
+    for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+        for B_name, B_fmt in [("CSR", B["csr"]), ("CSC", B["csc"]), ("COO", B["coo"])]:
+            results.append(repeat(f"A_{A_name} @ B_{B_name} (SpMM)", lambda: A_fmt @ B_fmt, args.runs))
+
+    for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+        results.append(repeat(f"A_{A_name} @ C (SpMV, dense vec)", lambda: A_fmt @ C, args.runs))
+
 
     # ----- Print summary -----
     print("\n=== Results ===")
@@ -197,9 +250,13 @@ def main():
     print(header)
     print("-" * len(header))
     for r in results:
-        print(f"{r.name:36}  {r.time_s:10.6f}  {human_bytes(r.dev_mem_used_delta):>12}  "
-              f"{human_bytes(r.pool_total_bytes_delta):>12}  {str(r.out_shape):>16}  {str(r.out_dtype):>10}")
-    print('\n\n\n')
+        if r == '':
+            print()
+        else:
+            print(f"{r.name:36}  {r.time_s:10.6f}  {human_bytes(r.dev_mem_used_delta):>12}  "
+                f"{human_bytes(r.pool_total_bytes_delta):>12}  {str(r.out_shape):>16}  {str(r.out_dtype):>10}")
+    print_best_combos(results)
+    
     # Optional: free pools (not necessary for single-shot runs)
     # cp.get_default_memory_pool().free_all_blocks()
     # cupyx.set_allocator(None)

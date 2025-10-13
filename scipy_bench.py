@@ -29,6 +29,54 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
+from collections import defaultdict
+
+def print_best_combos(results):
+    """
+    Scan BenchResult entries from this density run and print the best combos:
+      - For each mode in {hot, cold}:
+        * SpMM: best among all A_{CSR,CSC,COO} @ B_{CSR,CSC,COO}
+        * SpMV: best among A_{CSR,CSC,COO} @ C (dense vec)
+    """
+    import re
+    spmm_pat = re.compile(r'^(hot|cold)_A_(CSR|CSC|COO)\s*@\s*B_(CSR|CSC|COO)\s*\(SpMM\)$')
+    spmv_pat = re.compile(r'^(hot|cold)_A_(CSR|CSC|COO)\s*@\s*C\s*\(SpMV,\s*dense\s*vec\)$')
+
+    # Collect by op+mode
+    best = {
+        ("hot","spmm"): None,
+        ("cold","spmm"): None,
+        ("hot","spmv"): None,
+        ("cold","spmv"): None,
+    }
+
+    for r in results:
+        if not r or r == '':
+            continue
+        name = r.name.strip()
+        m = spmm_pat.match(name)
+        if m:
+            mode = m.group(1)
+            key = (mode, "spmm")
+            if best[key] is None or r.time_s < best[key].time_s:
+                best[key] = r
+            continue
+        m = spmv_pat.match(name)
+        if m:
+            mode = m.group(1)
+            key = (mode, "spmv")
+            if best[key] is None or r.time_s < best[key].time_s:
+                best[key] = r
+            continue
+
+    print("\n=== Best combos (by time) ===")
+    for (mode, op) in [("hot","spmm"), ("hot","spmv"), ("cold","spmm"), ("cold","spmv")]:
+        r = best[(mode, op)]
+        if r is not None:
+            print(f"{r.name} is the best combo  (time={r.time_s:.6f}s)")
+    print()
+
+
 
 import numpy as np
 import scipy.sparse as sp
@@ -101,10 +149,10 @@ def profile_op(name: str, func: Callable[[], Any]) -> BenchResult:
     )
 
 
-def make_sparse_matrix(m: int, n: int, density: float, dtype=np.float32, seed: int = 0) -> sp.csr_matrix:
+def make_sparse_matrix(m: int, n: int, density: float, fmt, dtype=np.float32, seed: int = 0) -> sp.csr_matrix:
     rng = np.random.default_rng(seed)
     # SciPy's sparse.random uses COO generation; specify data_rvs for values
-    M = sp.random(m, n, density=density, format="csr", dtype=dtype,
+    M = sp.random(m, n, density=density, format=fmt, dtype=dtype,
                   random_state=rng, data_rvs=rng.standard_normal)
     M.eliminate_zeros()
     return M
@@ -169,31 +217,28 @@ def main():
         print("==========================\n")
 
         # ----- Build data (profiled) -----
-        results.append(profile_op(
-            "build_A_sparse",
-            lambda: make_sparse_matrix(args.m, args.n, args.densityA, dtype=dtype, seed=args.seed)
-        ))
-        A = make_sparse_matrix(args.m, args.n, args.densityA, dtype=dtype, seed=args.seed)
+        A = defaultdict()
+        B = defaultdict()
 
-        results.append(profile_op(
-            "build_B_sparse",
-            lambda: make_sparse_matrix(args.n, args.p, args.densityB, dtype=dtype, seed=args.seed + 1)
-        ))
-        B = make_sparse_matrix(args.n, args.p, args.densityB, dtype=dtype, seed=args.seed + 1)
+        for fmt in ["csr", "csc", "coo"]:
+            # results.append(profile_op(f"build_A_sparse_{fmt}", lambda: make_sparse_matrix(args.m, args.n, args.densityA, dtype=dtype, seed=args.seed, fmt=fmt)))
+            # results.append(profile_op(f"build_B_sparse_{fmt}", lambda: make_sparse_matrix(args.n, args.p, args.densityB, dtype=dtype, seed=args.seed, fmt=fmt)))
+            A[fmt] = make_sparse_matrix(args.m, args.n, args.densityA, fmt, dtype=dtype, seed=args.seed)
+            B[fmt] = make_sparse_matrix(args.p, args.p, args.densityB, fmt, dtype=dtype, seed=args.seed)
 
-        results.append(profile_op(
-            "build_C_dense_vec",
-            lambda: make_dense_vector(args.n, dtype=dtype, seed=args.seed + 2)
-        ))
+        # results.append(profile_op("build_C_dense_vec",
+        #                         lambda: make_dense_vector(args.n, dtype=dtype, seed=args.seed + 2)))
         C = make_dense_vector(args.n, dtype=dtype, seed=args.seed + 2)
-
-        assert A.shape == (args.m, args.n)
-        assert B.shape == (args.n, args.p)
-        assert C.shape == (args.n, 1)
+        results.append("")
 
         # ----- Cold runs -----
-        results.append(profile_op("cold_A@B (SpGEMM)", lambda: A @ B))
-        results.append(profile_op("cold_A@C (SpMV, dense vec)", lambda: A @ C))
+        for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+            for B_name, B_fmt in [("CSR", B["csr"]), ("CSC", B["csc"]), ("COO", B["coo"])]:
+                results.append(profile_op(f"cold_A_{A_name} @ B_{B_name} (SpMM)", lambda: A_fmt @ B_fmt))
+
+        for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+            results.append(profile_op(f"cold_A_{A_name} @ C (SpMV, dense vec)", lambda: A_fmt @ C))
+        results.append("")
 
         # ----- Hot runs (median of N) -----
         def repeat(name: str, fn: Callable[[], Any], runs: int):
@@ -216,8 +261,12 @@ def main():
                 out_dtype=last.out_dtype if last else None,
             )
 
-        results.append(repeat("A@B (SpGEMM)", lambda: A @ B, args.runs))
-        results.append(repeat("A@C (SpMV, dense vec)", lambda: A @ C, args.runs))
+        for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+            for B_name, B_fmt in [("CSR", B["csr"]), ("CSC", B["csc"]), ("COO", B["coo"])]:
+                results.append(repeat(f"A_{A_name} @ B_{B_name} (SpMM)", lambda: A_fmt @ B_fmt, args.runs))
+
+        for A_name, A_fmt in [("CSR", A["csr"]), ("CSC", A["csc"]), ("COO", A["coo"])]:
+            results.append(repeat(f"A_{A_name} @ C (SpMV, dense vec)", lambda: A_fmt @ C, args.runs))
 
         # ----- Print summary -----
         print("\n=== Results (CPU/SciPy) ===")
@@ -225,9 +274,13 @@ def main():
         print(header)
         print("-" * len(header))
         for r in results:
-            print(f"{r.name:36}  {r.time_s:10.6f}  {human_bytes(r.rss_delta or 0):>12}  "
-                  f"{str(r.out_shape):>16}  {str(r.out_dtype):>10}")
-        print('\n\n\n')
+            if r == '':
+                print()
+            else:
+                print(f"{r.name:36}  {r.time_s:10.6f}  {human_bytes(r.rss_delta or 0):>12}  "
+                    f"{str(r.out_shape):>16}  {str(r.out_dtype):>10}")
+        print_best_combos(results)
+
 
     if tp_ctx is None:
         # No thread limit or threadpoolctl not installed
