@@ -1,0 +1,28 @@
+2 channel Terms of Service accepted
+Channels:
+ - conda-forge
+ - defaults
+Platform: linux-64
+Collecting package metadata (repodata.json): - \ | / - done
+Solving environment: | done
+
+## Package Plan ##
+
+  environment location: /home/chenwei/miniconda3/envs/mycupy
+
+  added / updated specs:
+    - libgcc-ng
+    - libstdcxx-ng
+
+
+The following packages will be UPDATED:
+
+  ca-certificates    pkgs/main/linux-64::ca-certificates-2~ --> conda-forge/noarch::ca-certificates-2025.10.5-hbd8a1cb_0 
+  libstdcxx-ng       pkgs/main::libstdcxx-ng-11.2.0-h12345~ --> conda-forge::libstdcxx-ng-13.2.0-hc0a3c3a_7 
+
+
+
+Downloading and Extracting Packages: ...working... done
+Preparing transaction: - done
+Verifying transaction: | done
+Executing transaction: - done
