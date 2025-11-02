@@ -5112,7 +5112,7 @@ cpdef void gather(intptr_t handle, size_t vecY, size_t vecX) except *:
     status = cusparseGather(<Handle>handle, <DnVecDescr>vecY, <SpVecDescr>vecX)
     check_status(status)
 
-# 第一次：拿 bufferSize3（externalBuffer3 = NULL）
+# first call
 cpdef size_t spGEMM_estimateMemory_getBuf3(
         intptr_t handle, Operation opA, Operation opB, intptr_t alpha,
         intptr_t matA, intptr_t matB, intptr_t beta, intptr_t matC,
@@ -5132,7 +5132,7 @@ cpdef size_t spGEMM_estimateMemory_getBuf3(
     return bufferSize3
 
 
-# 第二次：帶 externalBuffer3，拿 bufferSize2
+# second call  externalBuffer3， bufferSize2
 cpdef size_t spGEMM_estimateMemory(
         intptr_t handle, Operation opA, Operation opB, intptr_t alpha,
         intptr_t matA, intptr_t matB, intptr_t beta, intptr_t matC,
