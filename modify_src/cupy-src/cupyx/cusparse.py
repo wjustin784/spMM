@@ -2083,7 +2083,6 @@ def spgemm(a, b, alpha=1, alg=0, chunk_fraction=0.2):
     # implement CUSPARSE_SPGEMM_ALG3
     else:
         print("USING ALG3")
-        # ALG3 同樣先做 workEstimation (必要)
         buff1_size = _cusparse.spGEMM_workEstimation(
             handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
             mat_c.desc, cuda_dtype, algo, spgemm_descr, 0, null_ptr)
@@ -2092,15 +2091,12 @@ def spgemm(a, b, alpha=1, alg=0, chunk_fraction=0.2):
             handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
             mat_c.desc, cuda_dtype, algo, spgemm_descr, buff1_size, buff1.data.ptr)
 
-        # 2) ALG3 的兩段式記憶體規劃
-        # 2-a) 第一次呼叫：externalBuffer3=NULL，詢問 bufferSize3
         buff3_size = _cusparse.spGEMM_estimateMemory_getBuf3(
             handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
             mat_c.desc, cuda_dtype, algo, spgemm_descr, float(chunk_fraction)
         )
         buff3 = _cupy.empty(buff3_size, _cupy.int8)
 
-        # 2-b) 第二次呼叫：帶 externalBuffer3，取得 bufferSize2
         buff2_size = _cusparse.spGEMM_estimateMemory(
             handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
             mat_c.desc, cuda_dtype, algo, spgemm_descr, float(chunk_fraction),
