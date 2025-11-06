@@ -150,7 +150,6 @@ class csr_matrix(_compressed._compressed_sparse_matrix):
 
     def __mul__(self, other):
         from cupyx import cusparse
-        print("do multiplication")
         if cupy.isscalar(other):
             self.sum_duplicates()
             return self._with_data(self.data * other)

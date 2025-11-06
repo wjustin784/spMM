@@ -2004,7 +2004,7 @@ def spsm(a, b, alpha=1.0, lower=True, unit_diag=False, transa=False):
         _cusparse.spSM_destroyDescr(spsm_descr)
 
 
-def spgemm(a, b, alpha=1, alg=0, chunk_fraction=0.2):
+def spgemm(a, b, alpha=1, alg=0, chunk_fraction=0.2, verbose=False):
     """Matrix-matrix product for CSR-matrix.
 
     math::
@@ -2082,7 +2082,8 @@ def spgemm(a, b, alpha=1, alg=0, chunk_fraction=0.2):
                 buff1.data.ptr)
     # implement CUSPARSE_SPGEMM_ALG3
     else:
-        print("USING ALG3")
+        if verbose:
+            print("USING ALG3")
         buff1_size = _cusparse.spGEMM_workEstimation(
             handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
             mat_c.desc, cuda_dtype, algo, spgemm_descr, 0, null_ptr)
@@ -2108,7 +2109,8 @@ def spgemm(a, b, alpha=1, alg=0, chunk_fraction=0.2):
         buff2_size = _cusparse.spGEMM_compute(
             handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
             mat_c.desc, cuda_dtype, algo, spgemm_descr, 0, null_ptr)
-    print("buff2_size GB =", buff2_size / (1024**3))
+    if verbose:
+        print("buff2_size GB =", buff2_size / (1024**3))
     buff2 = _cupy.empty(buff2_size, _cupy.int8)
     _cusparse.spGEMM_compute(
         handle, op_a, op_b, alpha.data, mat_a.desc, mat_b.desc, beta.data,
