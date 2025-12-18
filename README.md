@@ -9,31 +9,13 @@ Please follow the instructions below to set up the environment and reproduce the
 
 ### 0.1 Install and use the modified CuPy source
 
-```bash
-cd modify_src/cupy-src
+We vendor a **modified CuPy source tree** under `modify_src/cupy-src` and install it in an isolated conda environment so the benchmarks run against our customized build.  
+This setup step mainly: (1) creates a conda env, (2) installs required toolchain/runtime packages, (3) sets CUDA-related environment variables, and (4) installs CuPy from source in editable mode.
 
-conda install -c conda-forge -y libstdcxx-ng>=13.2.0 libgcc-ng>=13.2.0
-conda install -c conda-forge -y _libgcc_mutex sysroot_linux-64
-
-export CC=/usr/bin/gcc
-export CXX=/usr/bin/g++
-export LD=/usr/bin/ld
-
-export CUPY_NVCC_GENERATE_CODE=current
-
-export CUDA_PATH=/usr/local/cuda
-export PATH=$PATH:$CUDA_PATH/bin
-export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
-
-python -m pip install -e . -v
-```
-
-### 0.2 Install Python dependencies
-
-From the repository root:
+To avoid manual setup, we provide a one-shot installer script:
 
 ```bash
-pip install -r requirements.txt
+bash install.sh
 ```
 
 ---
