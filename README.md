@@ -6,6 +6,9 @@ Please follow the instructions below to set up the environment and reproduce the
 ---
 
 ## 0. Environment Setup (Required)
+OS: Ubuntu 24.04
+
+CUDA: 13.0
 
 ### 0.1 Install and use the modified CuPy source
 
