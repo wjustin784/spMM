@@ -89,3 +89,6 @@ bash run.sh
 
 **Output:**  
 Benchmark result `.txt` file(s) generated after execution.
+
+**Note:**
+Omit ``others'' folder which contain legacy file.
