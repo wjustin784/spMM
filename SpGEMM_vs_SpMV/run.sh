@@ -13,7 +13,7 @@ do
     do
         echo ">>> Running size = $s    Running density = $d" | tee -a "$OUTFILE"
         echo "--- computing ---" | tee -a "$OUTFILE"
-        python3 profiler.py --densityA $d --densityB $d --m $s --n $s --p $s >> "$OUTFILE" 2>&1
+        python3 profiler.py --densityA $d --densityB $d --m $s --n $s --p $s --runs 100 >> "$OUTFILE" 2>&1
         echo "complete!"
 
         echo "" >> "$OUTFILE"

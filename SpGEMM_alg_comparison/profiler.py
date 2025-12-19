@@ -56,7 +56,6 @@ from cupyx.scipy import sparse as cpx_sparse
 import threading, time
 import itertools # 為了 main 函數中的 product
 
-# --- 資料結構 ---
 
 @dataclass
 class BenchResult:
@@ -67,7 +66,6 @@ class BenchResult:
     out_shape: Optional[tuple]
     out_dtype: Optional[str]
 
-# --- 輔助函式 (格式化) ---
 
 def human_bytes(x: int) -> str:
     if x is None:
@@ -80,9 +78,8 @@ def human_bytes(x: int) -> str:
         i += 1
     return f"{val:.2f} {units[i]}"
 
-# --- 效能分析 (GPU) ---
 
-def _sample_gpu(pool, stop_evt, out_dict, period_s=0.000005):
+def _sample_gpu(pool, stop_evt, out_dict, period_s=0.0005):
     peak_used = 0
     min_free = None
     while not stop_evt.is_set():
@@ -145,7 +142,6 @@ def profile_op_gpu(name, fn):
         out_dtype=str(getattr(out, "dtype", "")) if hasattr(out, "dtype") else None,
     )
 
-# --- 矩陣生成 ---
 
 def make_sparse_matrix(m: int, n: int, density: float, fmt, dtype=np.float32, seed: int = 0) -> sp_cpu.csr_matrix:
     rng = np.random.default_rng(seed)
@@ -165,7 +161,6 @@ def to_gpu_sparse(fmt: str, M: sp_cpu.spmatrix):
         return cpx_sparse.coo_matrix(M)
     raise ValueError(fmt)
 
-# --- 測試主體 ---
 
 def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
     """
@@ -175,7 +170,6 @@ def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
     A = defaultdict()
     B = defaultdict()
 
-    # --- 使用傳入的參數 ---
     for fmt in ["csr", "csc", "coo"]:
         # A[fmt] = to_gpu_sparse(fmt, make_sparse_matrix(m, n, densityA, fmt, dtype=dtype, seed=seed))
         # B[fmt] = to_gpu_sparse(fmt, make_sparse_matrix(n, p, densityB, fmt, dtype=dtype, seed=seed))
@@ -193,7 +187,6 @@ def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
     print(f"runs         : {runs}")
 
 
-    # --- 定義輔助函式 ---
     def repeat_gpu(name: str, fn: Callable[[], Any], runs: int):
         times = []
         mem_deltas = []
@@ -205,7 +198,7 @@ def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
             last_out = r
         median_idx = int(np.argsort(cp.asarray(times).get())[runs // 2])
         rsum = BenchResult(
-            name=name, # name 已經由外部傳入包含 alg 的名稱
+            name=name,
             time_ms=float(cp.asarray(times).get().tolist()[median_idx]),
             peak_vram=int(cp.asarray(mem_deltas).get().tolist()[median_idx]),
             peak_ram=None,
@@ -219,7 +212,6 @@ def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
         B_fmt_gpu = to_gpu_sparse(B_name, B_fmt)
         return cusparse.spgemm(A_fmt_gpu, B_fmt_gpu, alg=alg)
 
-    # --- 開始測試並收集結果 ---
     results = []
     algorithms_to_test = [1, 2, 3]
 
@@ -227,10 +219,8 @@ def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
         for B_name, B_fmt in [("csr", B["csr"])]:
             for alg in algorithms_to_test:
                 op_name = f"A_{A_name} @ B_{B_name} (alg={alg})"
-                # --- 使用傳入的 `runs` 參數 ---
                 results.append(repeat_gpu(op_name, lambda: SpGEMM(A_fmt, B_fmt, alg, A_name, B_name), runs))
 
-    # --- 列印整合後的摘要表格 ---
     print("\n=== Results (alg comparison) ===")
     header = f"{'name':40}  {'time(ms)':>10}  {'ΔPeak VRAM':>12}  {'out_shape':>16}  {'dtype':>10}"
     print(header)
@@ -239,19 +229,15 @@ def run_all(m, n, p, densityA, densityB, dtype, dtype_str, runs, seed):
         print(f"{r.name:40}  {r.time_ms:10.6f}  {human_bytes(r.peak_vram):>12}  "
               f"{str(r.out_shape):>16}  {str(r.out_dtype):>10}")
 
-# --- 主程式入口 ---
 
 def main():
     parser = argparse.ArgumentParser(description="CuPy sparse GPU benchmark (A,B)")
     
-    # 將 m, n, p 合併為 --size
     parser.add_argument("--size", type=int, nargs='+', default=[1024], 
                         help="List of matrix dimensions (sets m, n, p simultaneously)")
-    # 將 densityA, densityB 合併為 --density
     parser.add_argument("--density", type=float, nargs='+', default=[1e-1], 
                         help="List of densities (sets densityA, densityB simultaneously)")
     
-    # --- 這些參數保持不變 ---
     parser.add_argument("--dtype", type=str, default="float32",
                         choices=["float16", "float32", "float64"], help="Element dtype")
     parser.add_argument("--runs", type=int, default=1, help="Hot-run repeats")
@@ -270,31 +256,27 @@ def main():
     else:
         tp_ctx = None
 
-    # --- 建立簡化後的參數組合 ---
-    # 建立所有 size 和 density 的組合
+
     param_combinations = itertools.product(
         args.size,
         args.density
     )
 
-    # 遍歷每種組合
-    # (size, density) 是從 param_combinations 來的
+
     for (size, density) in param_combinations:
         
-        # 準備要傳遞給 run_all 的參數
         run_params = {
-            "m": size,         # <--- 使用 size
-            "n": size,         # <--- 使用 size
-            "p": size,         # <--- 使用 size
-            "densityA": density, # <--- 使用 density
-            "densityB": density, # <--- 使用 density
+            "m": size,
+            "n": size,
+            "p": size,
+            "densityA": density,
+            "densityB": density,
             "dtype": dtype,
             "dtype_str": args.dtype,
             "runs": args.runs,
             "seed": args.seed
         }
 
-        # 執行緒控制
         if tp_ctx is None:
             run_all(**run_params)
         else:

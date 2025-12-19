@@ -15,7 +15,7 @@ do
     do
         echo -e "size = $s, density = $d" | tee -a  "$OUTFILE"
         echo "--- computing ---" | tee -a "$OUTFILE"
-        python3 profiler.py --density $d  --size $s >> "$OUTFILE" 2>&1
+        python3 profiler.py --density $d  --size $s --runs 100 >> "$OUTFILE" 2>&1
         echo "complete!"
 
         echo "" >> "$OUTFILE"
