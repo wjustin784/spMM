@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# CUDA/C/C++ build
+*.o
+*.a
+*.out
+*.dSYM/
+
+# CuPy/CUDA build artifacts
+modify_src/cupy-src/build/
+modify_src/cupy-src/install/
+modify_src/cupy-src/**/__pycache__/
+modify_src/cupy-src/**/*.so
