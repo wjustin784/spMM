@@ -10,6 +10,8 @@ OS: Ubuntu 24.04
 
 CUDA: 13.0 (need to install by yourself)
 
+Anaconda: 25.9.1
+
 ### 0.1 Install and use the modified CuPy source
 
 We vendor a **modified CuPy source tree** under `modify_src/cupy-src` and install it in an isolated conda environment so the benchmarks run against our customized build.  
