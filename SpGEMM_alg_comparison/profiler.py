@@ -54,7 +54,7 @@ import cupy as cp
 import cupyx
 from cupyx.scipy import sparse as cpx_sparse
 import threading, time
-import itertools # 為了 main 函數中的 product
+import itertools 
 
 
 @dataclass
